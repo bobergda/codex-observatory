@@ -280,10 +280,10 @@ class CodexObservatoryTests(unittest.TestCase):
                 "payload": {
                     "type": "token_count",
                     "info": {"total_token_usage": {
-                        "input_tokens": 1_000_000,
-                        "cached_input_tokens": 400_000,
-                        "output_tokens": 100_000,
-                        "total_tokens": 1_100_000,
+                        "input_tokens": 100_000,
+                        "cached_input_tokens": 40_000,
+                        "output_tokens": 10_000,
+                        "total_tokens": 110_000,
                     }},
                 },
             },
@@ -294,10 +294,10 @@ class CodexObservatoryTests(unittest.TestCase):
                 "payload": {
                     "type": "token_count",
                     "info": {"total_token_usage": {
-                        "input_tokens": 2_000_000,
-                        "cached_input_tokens": 800_000,
-                        "output_tokens": 200_000,
-                        "total_tokens": 2_200_000,
+                        "input_tokens": 200_000,
+                        "cached_input_tokens": 80_000,
+                        "output_tokens": 20_000,
+                        "total_tokens": 220_000,
                     }},
                 },
             },
@@ -308,10 +308,10 @@ class CodexObservatoryTests(unittest.TestCase):
                 "payload": {
                     "type": "token_count",
                     "info": {"total_token_usage": {
-                        "input_tokens": 3_000_000,
-                        "cached_input_tokens": 1_300_000,
-                        "output_tokens": 300_000,
-                        "total_tokens": 3_300_000,
+                        "input_tokens": 300_000,
+                        "cached_input_tokens": 130_000,
+                        "output_tokens": 30_000,
+                        "total_tokens": 330_000,
                     }},
                 },
             },
@@ -326,10 +326,44 @@ class CodexObservatoryTests(unittest.TestCase):
         payload = json.loads(result.stdout)
         models = {row["model"]: row for row in payload["models_30d"]}
 
-        self.assertAlmostEqual(models["gpt-5.6-sol"]["total_cost_usd"], 6.2, places=9)
-        self.assertAlmostEqual(models["gpt-5.6-terra"]["total_cost_usd"], 3.1, places=9)
-        self.assertAlmostEqual(models["gpt-5.6-luna"]["total_cost_usd"], 1.15, places=9)
+        self.assertAlmostEqual(models["gpt-5.6-sol"]["total_cost_usd"], 0.62, places=9)
+        self.assertAlmostEqual(models["gpt-5.6-terra"]["total_cost_usd"], 0.31, places=9)
+        self.assertAlmostEqual(models["gpt-5.6-luna"]["total_cost_usd"], 0.115, places=9)
         self.assertEqual(payload["pricing"]["unpriced_models"], [])
+
+    def test_gpt_5_6_long_context_and_cache_write_pricing(self) -> None:
+        temp_dir = Path(tempfile.mkdtemp())
+        codex_home = temp_dir / ".codex"
+        sessions_dir = codex_home / "sessions" / "2026" / "07" / "18"
+        sessions_dir.mkdir(parents=True)
+        rows = [
+            {"timestamp": "2026-07-18T01:00:00Z", "type": "turn_context", "payload": {"model": "gpt-5.6-sol"}},
+            {
+                "timestamp": "2026-07-18T01:01:00Z",
+                "type": "event_msg",
+                "payload": {"type": "token_count", "info": {"total_token_usage": {
+                    "input_tokens": 300_000,
+                    "cached_input_tokens": 100_000,
+                    "cache_write_input_tokens": 50_000,
+                    "output_tokens": 100_000,
+                    "total_tokens": 400_000,
+                }}},
+            },
+        ]
+        (sessions_dir / "session-gpt-56-long.jsonl").write_text(
+            "\n".join(json.dumps(row) for row in rows) + "\n",
+            encoding="utf-8",
+        )
+
+        result = self.run_cli("--json", "--codex-home", str(codex_home), "--now", "2026-07-18T10:00:00")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        model = json.loads(result.stdout)["models_30d"][0]
+
+        self.assertAlmostEqual(model["input_cost_usd"], 1.5, places=9)
+        self.assertAlmostEqual(model["cached_input_cost_usd"], 0.1, places=9)
+        self.assertAlmostEqual(model["cache_write_input_cost_usd"], 0.625, places=9)
+        self.assertAlmostEqual(model["output_cost_usd"], 4.5, places=9)
+        self.assertAlmostEqual(model["total_cost_usd"], 6.725, places=9)
 
     def test_json_month_selector_expands_daily_rows_for_that_month(self) -> None:
         codex_home = self.make_fixture()

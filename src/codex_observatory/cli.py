@@ -67,8 +67,9 @@ class ModelPricing:
     long_context_cached_input_usd_per_million: float | None = None
     long_context_output_usd_per_million: float | None = None
     long_context_input_threshold: int | None = None
+    cache_write_usd_per_million: float | None = None
 
-    def rates_for_input_tokens(self, input_tokens: int) -> tuple[float, float, float]:
+    def rates_for_input_tokens(self, input_tokens: int) -> tuple[float, float, float, float]:
         if (
             self.long_context_input_threshold is not None
             and input_tokens > self.long_context_input_threshold
@@ -80,8 +81,13 @@ class ModelPricing:
                 if self.long_context_cached_input_usd_per_million is not None
                 else self.cached_input_usd_per_million
             )
-            return self.long_context_input_usd_per_million, cached_rate, self.long_context_output_usd_per_million
-        return self.input_usd_per_million, self.cached_input_usd_per_million, self.output_usd_per_million
+            cache_write_rate = (
+                self.long_context_input_usd_per_million * 1.25
+                if self.cache_write_usd_per_million is not None
+                else 0.0
+            )
+            return self.long_context_input_usd_per_million, cached_rate, cache_write_rate, self.long_context_output_usd_per_million
+        return self.input_usd_per_million, self.cached_input_usd_per_million, self.cache_write_usd_per_million or 0.0, self.output_usd_per_million
 
 
 MODEL_PRICING = {
@@ -103,9 +109,9 @@ MODEL_PRICING = {
     "gpt-5.4-pro": ModelPricing(30.00, 30.00, 180.00, 60.00, 60.00, 270.00, LONG_CONTEXT_INPUT_THRESHOLD),
     "gpt-5.5": ModelPricing(5.00, 0.50, 30.00, 10.00, 1.00, 45.00, LONG_CONTEXT_INPUT_THRESHOLD),
     "gpt-5.5-pro": ModelPricing(30.00, 30.00, 180.00, 60.00, 60.00, 270.00, LONG_CONTEXT_INPUT_THRESHOLD),
-    "gpt-5.6-sol": ModelPricing(5.00, 0.50, 30.00),
-    "gpt-5.6-terra": ModelPricing(2.50, 0.25, 15.00),
-    "gpt-5.6-luna": ModelPricing(1.00, 0.10, 6.00),
+    "gpt-5.6-sol": ModelPricing(5.00, 0.50, 30.00, 10.00, 1.00, 45.00, LONG_CONTEXT_INPUT_THRESHOLD, 6.25),
+    "gpt-5.6-terra": ModelPricing(2.50, 0.25, 15.00, 5.00, 0.50, 22.50, LONG_CONTEXT_INPUT_THRESHOLD, 3.125),
+    "gpt-5.6-luna": ModelPricing(1.00, 0.10, 6.00, 2.00, 0.20, 9.00, LONG_CONTEXT_INPUT_THRESHOLD, 1.25),
 }
 MODEL_ALIASES = {
     "gpt-5 mini": "gpt-5-mini",
@@ -148,6 +154,7 @@ class TokenEvent:
     model: str
     input_tokens: int
     cached_input_tokens: int
+    cache_write_input_tokens: int
     output_tokens: int
     reasoning_output_tokens: int
     total_tokens: int
@@ -160,6 +167,7 @@ class PeriodStats:
     turns: int = 0
     input_tokens: int = 0
     cached_input_tokens: int = 0
+    cache_write_input_tokens: int = 0
     output_tokens: int = 0
     reasoning_output_tokens: int = 0
     tokens: int = 0
@@ -219,11 +227,13 @@ class ModelStats:
     turns: int = 0
     input_tokens: int = 0
     cached_input_tokens: int = 0
+    cache_write_input_tokens: int = 0
     output_tokens: int = 0
     reasoning_output_tokens: int = 0
     total_tokens: int = 0
     input_cost_usd: float = 0.0
     cached_input_cost_usd: float = 0.0
+    cache_write_input_cost_usd: float = 0.0
     output_cost_usd: float = 0.0
     total_cost_usd: float = 0.0
     cache_savings_usd: float = 0.0
@@ -234,6 +244,7 @@ class ModelStats:
 class CostStats:
     input_cost_usd: float = 0.0
     cached_input_cost_usd: float = 0.0
+    cache_write_input_cost_usd: float = 0.0
     output_cost_usd: float = 0.0
     total_cost_usd: float = 0.0
     cache_savings_usd: float = 0.0
@@ -600,7 +611,7 @@ def load_sessions(codex_home: Path) -> tuple[list[TurnEvent], list[TokenEvent], 
 
     for session_file in sorted(sessions_root.rglob("*.jsonl")):
         current_model = "unknown"
-        prev_input = prev_cached = prev_output = prev_reasoning = prev_total = 0
+        prev_input = prev_cached = prev_cache_write = prev_output = prev_reasoning = prev_total = 0
         fallback_time = datetime.fromtimestamp(session_file.stat().st_mtime).replace(microsecond=0)
 
         for line in read_jsonl_lines(session_file):
@@ -635,12 +646,14 @@ def load_sessions(codex_home: Path) -> tuple[list[TurnEvent], list[TokenEvent], 
             usage = info.get("total_token_usage") or {}
             current_input = int(usage.get("input_tokens") or 0)
             current_cached = int(usage.get("cached_input_tokens") or 0)
+            current_cache_write = int(usage.get("cache_write_input_tokens") or 0)
             current_output = int(usage.get("output_tokens") or 0)
             current_reasoning = int(usage.get("reasoning_output_tokens") or 0)
             current_total = int(usage.get("total_tokens") or 0)
 
             delta_input = current_input - prev_input
             delta_cached = current_cached - prev_cached
+            delta_cache_write = current_cache_write - prev_cache_write
             delta_output = current_output - prev_output
             delta_reasoning = current_reasoning - prev_reasoning
             delta_total = current_total - prev_total
@@ -649,6 +662,8 @@ def load_sessions(codex_home: Path) -> tuple[list[TurnEvent], list[TokenEvent], 
                 delta_input = current_input
             if delta_cached < 0:
                 delta_cached = current_cached
+            if delta_cache_write < 0:
+                delta_cache_write = current_cache_write
             if delta_output < 0:
                 delta_output = current_output
             if delta_reasoning < 0:
@@ -658,11 +673,12 @@ def load_sessions(codex_home: Path) -> tuple[list[TurnEvent], list[TokenEvent], 
 
             prev_input = current_input
             prev_cached = current_cached
+            prev_cache_write = current_cache_write
             prev_output = current_output
             prev_reasoning = current_reasoning
             prev_total = current_total
 
-            if not any((delta_input, delta_cached, delta_output, delta_reasoning, delta_total)):
+            if not any((delta_input, delta_cached, delta_cache_write, delta_output, delta_reasoning, delta_total)):
                 continue
 
             token_events.append(
@@ -675,6 +691,7 @@ def load_sessions(codex_home: Path) -> tuple[list[TurnEvent], list[TokenEvent], 
                     model=current_model,
                     input_tokens=delta_input,
                     cached_input_tokens=delta_cached,
+                    cache_write_input_tokens=delta_cache_write,
                     output_tokens=delta_output,
                     reasoning_output_tokens=delta_reasoning,
                     total_tokens=delta_total,
@@ -689,6 +706,7 @@ def load_sessions(codex_home: Path) -> tuple[list[TurnEvent], list[TokenEvent], 
 def add_token_breakdown(stats: PeriodStats, event: TokenEvent) -> None:
     stats.input_tokens += event.input_tokens
     stats.cached_input_tokens += event.cached_input_tokens
+    stats.cache_write_input_tokens += event.cache_write_input_tokens
     stats.output_tokens += event.output_tokens
     stats.reasoning_output_tokens += event.reasoning_output_tokens
     stats.tokens += event.total_tokens
@@ -769,16 +787,18 @@ def resolve_model_pricing(model: str) -> tuple[str | None, ModelPricing | None]:
     return None, None
 
 
-def estimate_token_costs(input_tokens: int, cached_input_tokens: int, output_tokens: int, pricing: ModelPricing) -> tuple[float, float, float, float, float]:
+def estimate_token_costs(input_tokens: int, cached_input_tokens: int, cache_write_input_tokens: int, output_tokens: int, pricing: ModelPricing) -> tuple[float, float, float, float, float, float]:
     billed_cached_input = max(0, min(cached_input_tokens, input_tokens))
-    billed_uncached_input = max(0, input_tokens - billed_cached_input)
-    input_rate, cached_input_rate, output_rate = pricing.rates_for_input_tokens(input_tokens)
+    billed_cache_write_input = max(0, min(cache_write_input_tokens, input_tokens - billed_cached_input))
+    billed_uncached_input = max(0, input_tokens - billed_cached_input - billed_cache_write_input)
+    input_rate, cached_input_rate, cache_write_rate, output_rate = pricing.rates_for_input_tokens(input_tokens)
     input_cost = billed_uncached_input / 1_000_000 * input_rate
     cached_input_cost = billed_cached_input / 1_000_000 * cached_input_rate
+    cache_write_input_cost = billed_cache_write_input / 1_000_000 * cache_write_rate
     output_cost = output_tokens / 1_000_000 * output_rate
-    total_cost = input_cost + cached_input_cost + output_cost
+    total_cost = input_cost + cached_input_cost + cache_write_input_cost + output_cost
     cache_savings = billed_cached_input / 1_000_000 * (input_rate - cached_input_rate)
-    return input_cost, cached_input_cost, output_cost, total_cost, cache_savings
+    return input_cost, cached_input_cost, cache_write_input_cost, output_cost, total_cost, cache_savings
 
 
 def apply_model_pricing(model_name: str, stats: ModelStats) -> bool:
@@ -790,6 +810,7 @@ def apply_model_pricing(model_name: str, stats: ModelStats) -> bool:
         (
             stats.input_cost_usd,
             stats.cached_input_cost_usd,
+            stats.cache_write_input_cost_usd,
             stats.output_cost_usd,
             stats.total_cost_usd,
             stats.cache_savings_usd,
@@ -799,16 +820,18 @@ def apply_model_pricing(model_name: str, stats: ModelStats) -> bool:
     (
         stats.input_cost_usd,
         stats.cached_input_cost_usd,
+        stats.cache_write_input_cost_usd,
         stats.output_cost_usd,
         stats.total_cost_usd,
         stats.cache_savings_usd,
-    ) = estimate_token_costs(stats.input_tokens, stats.cached_input_tokens, stats.output_tokens, pricing)
+    ) = estimate_token_costs(stats.input_tokens, stats.cached_input_tokens, stats.cache_write_input_tokens, stats.output_tokens, pricing)
     return True
 
 
 def add_model_token_event(stats: ModelStats, event: TokenEvent) -> None:
     stats.input_tokens += event.input_tokens
     stats.cached_input_tokens += event.cached_input_tokens
+    stats.cache_write_input_tokens += event.cache_write_input_tokens
     stats.output_tokens += event.output_tokens
     stats.reasoning_output_tokens += event.reasoning_output_tokens
     stats.total_tokens += event.total_tokens
@@ -817,14 +840,16 @@ def add_model_token_event(stats: ModelStats, event: TokenEvent) -> None:
     stats.pricing_model = pricing_model
     if pricing is None:
         return
-    input_cost, cached_input_cost, output_cost, total_cost, cache_savings = estimate_token_costs(
+    input_cost, cached_input_cost, cache_write_input_cost, output_cost, total_cost, cache_savings = estimate_token_costs(
         event.input_tokens,
         event.cached_input_tokens,
+        event.cache_write_input_tokens,
         event.output_tokens,
         pricing,
     )
     stats.input_cost_usd += input_cost
     stats.cached_input_cost_usd += cached_input_cost
+    stats.cache_write_input_cost_usd += cache_write_input_cost
     stats.output_cost_usd += output_cost
     stats.total_cost_usd += total_cost
     stats.cache_savings_usd += cache_savings
@@ -846,14 +871,16 @@ def summarize_costs(
         if pricing is None:
             out.unpriced_tokens += event.total_tokens
             continue
-        input_cost, cached_input_cost, output_cost, total_cost, cache_savings = estimate_token_costs(
+        input_cost, cached_input_cost, cache_write_input_cost, output_cost, total_cost, cache_savings = estimate_token_costs(
             event.input_tokens,
             event.cached_input_tokens,
+            event.cache_write_input_tokens,
             event.output_tokens,
             pricing,
         )
         out.input_cost_usd += input_cost
         out.cached_input_cost_usd += cached_input_cost
+        out.cache_write_input_cost_usd += cache_write_input_cost
         out.output_cost_usd += output_cost
         out.total_cost_usd += total_cost
         out.cache_savings_usd += cache_savings
@@ -870,9 +897,10 @@ def estimate_event_cost_total(event: TokenEvent) -> float:
     _pricing_model, pricing = resolve_model_pricing(event.model)
     if pricing is None:
         return 0.0
-    _input_cost, _cached_input_cost, _output_cost, total_cost, _cache_savings = estimate_token_costs(
+    _input_cost, _cached_input_cost, _cache_write_input_cost, _output_cost, total_cost, _cache_savings = estimate_token_costs(
         event.input_tokens,
         event.cached_input_tokens,
+        event.cache_write_input_tokens,
         event.output_tokens,
         pricing,
     )
@@ -1455,6 +1483,7 @@ def render_report(report: Report, *, view: str, width: int, use_color: bool) -> 
             "30d API cost mix: "
             f"in {format_usd(report.thirty_days_cost.input_cost_usd)}"
             f" | cache {format_usd(report.thirty_days_cost.cached_input_cost_usd)}"
+            f" | cache write {format_usd(report.thirty_days_cost.cache_write_input_cost_usd)}"
             f" | out {format_usd(report.thirty_days_cost.output_cost_usd)}",
             "dim",
         ),
