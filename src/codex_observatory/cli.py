@@ -28,7 +28,7 @@ THEME = {
     "bar": "38;5;45",
     "dim": "38;5;244",
 }
-PRICING_VERIFIED_AT = "2026-04-29"
+PRICING_VERIFIED_AT = "2026-07-18"
 API_EQUIVALENT_NOTE = "Estimated API-equivalent spend only; Codex app or subscription billing may differ."
 LONG_CONTEXT_INPUT_THRESHOLD = 272_000
 LONG_CONTEXT_PRICING_NOTE = (
@@ -37,6 +37,9 @@ LONG_CONTEXT_PRICING_NOTE = (
 PRICING_SOURCES = [
     "https://openai.com/api/pricing/",
     "https://developers.openai.com/api/docs/pricing",
+    "https://developers.openai.com/api/docs/models/gpt-5.6-sol",
+    "https://developers.openai.com/api/docs/models/gpt-5.6-terra",
+    "https://developers.openai.com/api/docs/models/gpt-5.6-luna",
     "https://developers.openai.com/api/docs/models/gpt-5.5",
     "https://developers.openai.com/api/docs/models/gpt-5.5-pro",
     "https://developers.openai.com/api/docs/models/gpt-5.4",
@@ -100,6 +103,9 @@ MODEL_PRICING = {
     "gpt-5.4-pro": ModelPricing(30.00, 30.00, 180.00, 60.00, 60.00, 270.00, LONG_CONTEXT_INPUT_THRESHOLD),
     "gpt-5.5": ModelPricing(5.00, 0.50, 30.00, 10.00, 1.00, 45.00, LONG_CONTEXT_INPUT_THRESHOLD),
     "gpt-5.5-pro": ModelPricing(30.00, 30.00, 180.00, 60.00, 60.00, 270.00, LONG_CONTEXT_INPUT_THRESHOLD),
+    "gpt-5.6-sol": ModelPricing(5.00, 0.50, 30.00),
+    "gpt-5.6-terra": ModelPricing(2.50, 0.25, 15.00),
+    "gpt-5.6-luna": ModelPricing(1.00, 0.10, 6.00),
 }
 MODEL_ALIASES = {
     "gpt-5 mini": "gpt-5-mini",
@@ -111,6 +117,10 @@ MODEL_ALIASES = {
     "gpt-5.4 nano": "gpt-5.4-nano",
     "gpt-5.4 pro": "gpt-5.4-pro",
     "gpt-5.5 pro": "gpt-5.5-pro",
+    "gpt-5.6": "gpt-5.6-sol",
+    "gpt-5.6 sol": "gpt-5.6-sol",
+    "gpt-5.6 terra": "gpt-5.6-terra",
+    "gpt-5.6 luna": "gpt-5.6-luna",
 }
 
 

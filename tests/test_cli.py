@@ -182,7 +182,7 @@ class CodexObservatoryTests(unittest.TestCase):
         self.assertAlmostEqual(payload["costs"]["all_time"]["total_cost_usd"], 0.01103, places=9)
         self.assertAlmostEqual(payload["costs"]["thirty_days"]["cache_savings_usd"], 0.0027, places=9)
         self.assertEqual(payload["costs"]["coverage_pct"]["all_time"], 100.0)
-        self.assertEqual(payload["pricing"]["verified_at"], "2026-04-29")
+        self.assertEqual(payload["pricing"]["verified_at"], "2026-07-18")
         self.assertEqual(payload["pricing"]["long_context_input_threshold"], 272000)
         self.assertEqual(
             payload["pricing"]["scope_note"],
@@ -265,6 +265,70 @@ class CodexObservatoryTests(unittest.TestCase):
         self.assertAlmostEqual(models["gpt-5.5"]["total_cost_usd"], 0.575, places=9)
         self.assertAlmostEqual(models["gpt-5.5-2026-04-23"]["total_cost_usd"], 2.55, places=9)
         self.assertAlmostEqual(payload["costs"]["today"]["total_cost_usd"], 3.125, places=9)
+        self.assertEqual(payload["pricing"]["unpriced_models"], [])
+
+    def test_gpt_5_6_family_pricing_includes_cached_input_rates(self) -> None:
+        temp_dir = Path(tempfile.mkdtemp())
+        codex_home = temp_dir / ".codex"
+        sessions_dir = codex_home / "sessions" / "2026" / "07" / "18"
+        sessions_dir.mkdir(parents=True)
+        rows = [
+            {"timestamp": "2026-07-18T00:58:00Z", "type": "turn_context", "payload": {"model": "gpt-5.6-sol"}},
+            {
+                "timestamp": "2026-07-18T00:59:00Z",
+                "type": "event_msg",
+                "payload": {
+                    "type": "token_count",
+                    "info": {"total_token_usage": {
+                        "input_tokens": 1_000_000,
+                        "cached_input_tokens": 400_000,
+                        "output_tokens": 100_000,
+                        "total_tokens": 1_100_000,
+                    }},
+                },
+            },
+            {"timestamp": "2026-07-18T01:00:00Z", "type": "turn_context", "payload": {"model": "gpt-5.6-terra"}},
+            {
+                "timestamp": "2026-07-18T01:01:00Z",
+                "type": "event_msg",
+                "payload": {
+                    "type": "token_count",
+                    "info": {"total_token_usage": {
+                        "input_tokens": 2_000_000,
+                        "cached_input_tokens": 800_000,
+                        "output_tokens": 200_000,
+                        "total_tokens": 2_200_000,
+                    }},
+                },
+            },
+            {"timestamp": "2026-07-18T01:02:00Z", "type": "turn_context", "payload": {"model": "gpt-5.6-luna"}},
+            {
+                "timestamp": "2026-07-18T01:03:00Z",
+                "type": "event_msg",
+                "payload": {
+                    "type": "token_count",
+                    "info": {"total_token_usage": {
+                        "input_tokens": 3_000_000,
+                        "cached_input_tokens": 1_300_000,
+                        "output_tokens": 300_000,
+                        "total_tokens": 3_300_000,
+                    }},
+                },
+            },
+        ]
+        (sessions_dir / "session-gpt-56.jsonl").write_text(
+            "\n".join(json.dumps(row) for row in rows) + "\n",
+            encoding="utf-8",
+        )
+
+        result = self.run_cli("--json", "--codex-home", str(codex_home), "--now", "2026-07-18T10:00:00")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        models = {row["model"]: row for row in payload["models_30d"]}
+
+        self.assertAlmostEqual(models["gpt-5.6-sol"]["total_cost_usd"], 6.2, places=9)
+        self.assertAlmostEqual(models["gpt-5.6-terra"]["total_cost_usd"], 3.1, places=9)
+        self.assertAlmostEqual(models["gpt-5.6-luna"]["total_cost_usd"], 1.15, places=9)
         self.assertEqual(payload["pricing"]["unpriced_models"], [])
 
     def test_json_month_selector_expands_daily_rows_for_that_month(self) -> None:
