@@ -28,15 +28,21 @@ THEME = {
     "bar": "38;5;45",
     "dim": "38;5;244",
 }
-PRICING_VERIFIED_AT = "2026-04-29"
+PRICING_VERIFIED_AT = "2026-07-23"
 API_EQUIVALENT_NOTE = "Estimated API-equivalent spend only; Codex app or subscription billing may differ."
 LONG_CONTEXT_INPUT_THRESHOLD = 272_000
 LONG_CONTEXT_PRICING_NOTE = (
     "Long-context rates are applied for configured models when a token event exceeds 272K input tokens."
 )
+CACHE_WRITE_PRICING_NOTE = (
+    "GPT-5.6 cache writes cost 1.25x uncached input, but Codex logs do not report them separately; "
+    "estimates treat them as uncached input and may be low when cache writes occur."
+)
 PRICING_SOURCES = [
-    "https://openai.com/api/pricing/",
     "https://developers.openai.com/api/docs/pricing",
+    "https://developers.openai.com/api/docs/models/gpt-5.6-sol",
+    "https://developers.openai.com/api/docs/models/gpt-5.6-terra",
+    "https://developers.openai.com/api/docs/models/gpt-5.6-luna",
     "https://developers.openai.com/api/docs/models/gpt-5.5",
     "https://developers.openai.com/api/docs/models/gpt-5.5-pro",
     "https://developers.openai.com/api/docs/models/gpt-5.4",
@@ -100,6 +106,9 @@ MODEL_PRICING = {
     "gpt-5.4-pro": ModelPricing(30.00, 30.00, 180.00, 60.00, 60.00, 270.00, LONG_CONTEXT_INPUT_THRESHOLD),
     "gpt-5.5": ModelPricing(5.00, 0.50, 30.00, 10.00, 1.00, 45.00, LONG_CONTEXT_INPUT_THRESHOLD),
     "gpt-5.5-pro": ModelPricing(30.00, 30.00, 180.00, 60.00, 60.00, 270.00, LONG_CONTEXT_INPUT_THRESHOLD),
+    "gpt-5.6-sol": ModelPricing(5.00, 0.50, 30.00, 10.00, 1.00, 45.00, LONG_CONTEXT_INPUT_THRESHOLD),
+    "gpt-5.6-terra": ModelPricing(2.50, 0.25, 15.00, 5.00, 0.50, 22.50, LONG_CONTEXT_INPUT_THRESHOLD),
+    "gpt-5.6-luna": ModelPricing(1.00, 0.10, 6.00, 2.00, 0.20, 9.00, LONG_CONTEXT_INPUT_THRESHOLD),
 }
 MODEL_ALIASES = {
     "gpt-5 mini": "gpt-5-mini",
@@ -111,6 +120,10 @@ MODEL_ALIASES = {
     "gpt-5.4 nano": "gpt-5.4-nano",
     "gpt-5.4 pro": "gpt-5.4-pro",
     "gpt-5.5 pro": "gpt-5.5-pro",
+    "gpt-5.6": "gpt-5.6-sol",
+    "gpt-5.6 sol": "gpt-5.6-sol",
+    "gpt-5.6 terra": "gpt-5.6-terra",
+    "gpt-5.6 luna": "gpt-5.6-luna",
 }
 
 
@@ -1330,6 +1343,7 @@ def to_json_dict(report: Report, codex_home: Path) -> dict:
             "verified_at": report.pricing_verified_at,
             "scope_note": report.pricing_scope_note,
             "long_context_note": LONG_CONTEXT_PRICING_NOTE,
+            "cache_write_note": CACHE_WRITE_PRICING_NOTE,
             "long_context_input_threshold": LONG_CONTEXT_INPUT_THRESHOLD,
             "sources": PRICING_SOURCES,
             "unpriced_models": report.unpriced_models,
@@ -1452,6 +1466,7 @@ def render_report(report: Report, *, view: str, width: int, use_color: bool) -> 
         style.paint(f"Pricing coverage: {cost_coverage(report.all_time_cost):.1f}% of all-time tokens", "accent"),
         style.paint(f"Pricing verified: {report.pricing_verified_at}", "dim"),
         style.paint(LONG_CONTEXT_PRICING_NOTE, "dim"),
+        style.paint(CACHE_WRITE_PRICING_NOTE, "dim"),
     ]
     if report.unpriced_models:
         preview = ", ".join(report.unpriced_models[:3])

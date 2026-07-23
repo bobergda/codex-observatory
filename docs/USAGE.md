@@ -48,6 +48,8 @@ codex stats --from 2026-04-01 --to 2026-04-15
 
 The dashboard includes input, cached input, output, reasoning, total token, turn, and API-estimate columns in the period, model, daily, monthly, and full day-of-week tables when session token logs are available.
 
+GPT-5.6 Sol, Terra, and Luna use their official short- and long-context API rates. The `gpt-5.6` alias resolves to Sol, and versioned model snapshots inherit their tier's pricing. GPT-5.6 cache writes cost 1.25x uncached input, but Codex logs do not expose cache-write tokens separately, so estimates treat them as ordinary uncached input and may be low when cache writes occur.
+
 ## Direct Aliases
 
 If you prefer direct commands instead of the patched `codex` subcommand, these are equivalent:

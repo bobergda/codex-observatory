@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.2.16 - 2026-07-23
+
+- Added official GPT-5.6 Sol, Terra, and Luna API-equivalent pricing, including the `gpt-5.6` alias, versioned snapshots, cached input, and long-context rates above 272K input tokens.
+- Added current GPT-5.6 model documentation sources and refreshed the pricing verification date.
+- Documented that GPT-5.6 cache writes cost 1.25x uncached input but cannot be identified separately in current Codex logs.
+
 ## 1.2.15 - 2026-04-29
 
 - Added simple time selectors: `--day`, `--days`, `--month`, `--months`, `--year`, and inclusive `--from/--to`.

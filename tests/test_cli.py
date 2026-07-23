@@ -182,7 +182,7 @@ class CodexObservatoryTests(unittest.TestCase):
         self.assertAlmostEqual(payload["costs"]["all_time"]["total_cost_usd"], 0.01103, places=9)
         self.assertAlmostEqual(payload["costs"]["thirty_days"]["cache_savings_usd"], 0.0027, places=9)
         self.assertEqual(payload["costs"]["coverage_pct"]["all_time"], 100.0)
-        self.assertEqual(payload["pricing"]["verified_at"], "2026-04-29")
+        self.assertEqual(payload["pricing"]["verified_at"], "2026-07-23")
         self.assertEqual(payload["pricing"]["long_context_input_threshold"], 272000)
         self.assertEqual(
             payload["pricing"]["scope_note"],
@@ -265,6 +265,87 @@ class CodexObservatoryTests(unittest.TestCase):
         self.assertAlmostEqual(models["gpt-5.5"]["total_cost_usd"], 0.575, places=9)
         self.assertAlmostEqual(models["gpt-5.5-2026-04-23"]["total_cost_usd"], 2.55, places=9)
         self.assertAlmostEqual(payload["costs"]["today"]["total_cost_usd"], 3.125, places=9)
+        self.assertEqual(payload["pricing"]["unpriced_models"], [])
+
+    def test_gpt_5_6_family_pricing_includes_aliases_snapshots_and_long_context_rates(self) -> None:
+        temp_dir = Path(tempfile.mkdtemp())
+        codex_home = temp_dir / ".codex"
+        sessions_dir = codex_home / "sessions" / "2026" / "07" / "23"
+        sessions_dir.mkdir(parents=True)
+
+        cases = [
+            ("gpt-5.6", 100000, 40000, 10000, 0.62, "gpt-5.6-sol"),
+            ("gpt-5.6-sol-2026-07-09", 400000, 150000, 20000, 3.55, "gpt-5.6-sol"),
+            ("gpt-5.6-terra", 100000, 40000, 10000, 0.31, "gpt-5.6-terra"),
+            ("gpt-5.6-terra-2026-07-09", 400000, 150000, 20000, 1.775, "gpt-5.6-terra"),
+            ("gpt-5.6-luna", 100000, 40000, 10000, 0.124, "gpt-5.6-luna"),
+            ("gpt-5.6-luna-2026-07-09", 400000, 150000, 20000, 0.71, "gpt-5.6-luna"),
+            ("gpt-5.6-sol-boundary-short", 272000, 0, 1000, 1.39, "gpt-5.6-sol"),
+            ("gpt-5.6-sol-boundary-long", 272001, 0, 1000, 2.76501, "gpt-5.6-sol"),
+        ]
+        history_rows = []
+        for index, (model, input_tokens, cached_tokens, output_tokens, _cost, _pricing_model) in enumerate(cases):
+            session_id = f"session-gpt-56-{index}"
+            history_rows.append(
+                {"session_id": session_id, "ts": unix_seconds(f"2026-07-23T0{index}:00:00")}
+            )
+            rows = [
+                {
+                    "timestamp": f"2026-07-23T0{index}:00:00Z",
+                    "type": "session_meta",
+                    "payload": {"id": session_id},
+                },
+                {
+                    "timestamp": f"2026-07-23T0{index}:01:00Z",
+                    "type": "turn_context",
+                    "payload": {"model": model},
+                },
+                {
+                    "timestamp": f"2026-07-23T0{index}:02:00Z",
+                    "type": "event_msg",
+                    "payload": {
+                        "type": "token_count",
+                        "info": {
+                            "total_token_usage": {
+                                "input_tokens": input_tokens,
+                                "cached_input_tokens": cached_tokens,
+                                "output_tokens": output_tokens,
+                                "reasoning_output_tokens": 0,
+                                "total_tokens": input_tokens + output_tokens,
+                            }
+                        },
+                    },
+                },
+            ]
+            (sessions_dir / f"{session_id}.jsonl").write_text(
+                "\n".join(json.dumps(row) for row in rows) + "\n",
+                encoding="utf-8",
+            )
+
+        (codex_home / "history.jsonl").write_text(
+            "\n".join(json.dumps(row) for row in history_rows) + "\n",
+            encoding="utf-8",
+        )
+
+        result = self.run_cli(
+            "--json",
+            "--top-models",
+            "12",
+            "--codex-home",
+            str(codex_home),
+            "--now",
+            "2026-07-23T10:00:00",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        models = {row["model"]: row for row in payload["models_30d"]}
+
+        for model, _input_tokens, _cached_tokens, _output_tokens, expected_cost, pricing_model in cases:
+            self.assertAlmostEqual(models[model]["total_cost_usd"], expected_cost, places=9)
+            self.assertEqual(models[model]["pricing_model"], pricing_model)
+        self.assertAlmostEqual(payload["costs"]["today"]["total_cost_usd"], 11.24401, places=9)
+        self.assertEqual(payload["pricing"]["verified_at"], "2026-07-23")
+        self.assertIn("1.25x", payload["pricing"]["cache_write_note"])
         self.assertEqual(payload["pricing"]["unpriced_models"], [])
 
     def test_json_month_selector_expands_daily_rows_for_that_month(self) -> None:
